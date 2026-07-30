@@ -17,7 +17,7 @@ import { TopBar } from "@/components/TopBar";
 import { CopyButton } from "@/components/CopyButton";
 import { useHydrated } from "@/components/web3/Web3Provider";
 import { EXPLORER_URL, truncate } from "@/lib/chain";
-import { VALID_IDS, generateCode, generateTxHash } from "@/lib/registry";
+import { generateCode, generateTxHash } from "@/lib/registry";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -140,11 +140,15 @@ function VerifyPanel() {
     setPhase("validating");
     await wait(900);
 
-    const idOk = VALID_IDS.includes(staffId.trim().toUpperCase());
+    const idOk = staffId.trim().length >= 3;
     const codeOk = /^\d{6}$/.test(code.trim());
     if (!idOk || !codeOk) {
       setPhase("failed");
-      setError("Verification failed. Check your ID and authenticator code.");
+      setError(
+        !idOk
+          ? "Please enter a valid ID (at least 3 characters)"
+          : "Please enter a valid 6-digit code",
+      );
       return;
     }
 
@@ -154,7 +158,7 @@ function VerifyPanel() {
     setPhase("signing");
     try {
       await signMessageAsync({
-        message: `Hospital Verification\nID: ${staffId.trim().toUpperCase()}\nWallet: ${address}\nTimestamp: ${new Date().toISOString()}`,
+        message: `Hospital Verification\nID: ${staffId.trim()}\nWallet: ${address}\nTimestamp: ${new Date().toISOString()}`,
       });
     } catch {
       setPhase("failed");
@@ -214,7 +218,7 @@ function VerifyPanel() {
         />
         <Field
           label="Google Authenticator Code"
-          helper="Open your authenticator app for this code"
+          helper="Enter any 6-digit code for demo purposes"
           error={failed}
           value={code}
           onChange={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))}
