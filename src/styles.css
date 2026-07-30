@@ -128,6 +128,37 @@
   animation: soft-pulse 1.6s ease-in-out infinite;
 }
 
+@keyframes card-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-9px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+
+@keyframes wallet-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 45%, transparent); }
+  50% { box-shadow: 0 0 0 14px color-mix(in oklab, var(--primary) 0%, transparent); }
+}
+
+@keyframes pop-in {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@utility shake {
+  animation: card-shake 0.45s ease-in-out;
+}
+
+@utility wallet-pulse {
+  animation: wallet-glow 2.4s ease-out infinite;
+}
+
+@utility pop {
+  animation: pop-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+
 @utility glass {
   background: color-mix(in oklab, white 4%, transparent);
   border: 1px solid color-mix(in oklab, white 8%, transparent);
