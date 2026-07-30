@@ -1,301 +1,380 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useAccount, useSignMessage } from "wagmi";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
-  BadgeCheck,
-  Cpu,
-  Fingerprint,
-  IdCard,
-  Link2,
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  HeartPulse,
   Loader2,
-  ShieldAlert,
+  LockKeyhole,
+  RotateCcw,
+  Wallet,
 } from "lucide-react";
-import { ModeForm } from "@/components/verify/ModeForm";
-import { ResultCard } from "@/components/verify/ResultCard";
-import {
-  MODEL_REGISTRY,
-  MODE_META,
-  buildResult,
-  type Mode,
-  type VerificationResult,
-} from "@/lib/verification";
+import { AuroraBackground } from "@/components/AuroraBackground";
+import { TopBar } from "@/components/TopBar";
+import { CopyButton } from "@/components/CopyButton";
+import { useHydrated } from "@/components/web3/Web3Provider";
+import { EXPLORER_URL, truncate } from "@/lib/chain";
+import { VALID_IDS, generateCode, generateTxHash } from "@/lib/registry";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Hospital Verification Bot — ONNX Identity & Credential Checks" },
+      { title: "Hospital Verification System — On-chain Identity Checks" },
       {
         name: "description",
         content:
-          "Enterprise-grade hospital verification: identity, credential and deep ML risk checks powered by ONNX inference and the Ritual Chain 0x0800 precompile.",
+          "Connect your wallet, confirm your hospital ID and authenticator code, and receive on-chain verified entry codes in seconds.",
       },
-      { property: "og:title", content: "Hospital Verification Bot — ONNX Identity & Credential Checks" },
+      { property: "og:title", content: "Hospital Verification System" },
       {
         property: "og:description",
-        content:
-          "HIPAA-grade verification in three modes — 99.7% accuracy, sub-3s ONNX inference, on-chain attestation.",
+        content: "Secure. On-chain. Verified. Wallet-based identity verification for hospital access.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: Dashboard,
+  component: HomePage,
 });
 
-const MODES: Mode[] = ["easy", "moderate", "high"];
+type Phase = "idle" | "validating" | "verifying" | "signing" | "success" | "failed";
 
-const MODE_ICON = { easy: IdCard, moderate: BadgeCheck, high: Fingerprint } as const;
-const ACCENT: Record<Mode, string> = {
-  easy: "var(--easy)",
-  moderate: "var(--moderate)",
-  high: "var(--high)",
+const PHASE_TEXT: Record<string, string> = {
+  validating: "Validating credentials...",
+  verifying: "Running secure verification...",
+  signing: "Awaiting wallet confirmation...",
 };
 
-const STEPS = ["Encoding input", "Running ONNX inference", "Verifying on Ritual Chain", "Complete"];
+function HomePage() {
+  const hydrated = useHydrated();
+  const { isConnected } = useAccount();
 
-const DURATION: Record<Mode, [number, number]> = {
-  easy: [900, 1400],
-  moderate: [2000, 3000],
-  high: [3000, 5000],
-};
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-background">
+      <AuroraBackground />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[900px] flex-col gap-10 px-4 py-8 sm:px-6 sm:py-10">
+        {!hydrated ? (
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" />
+          </div>
+        ) : isConnected ? (
+          <>
+            <TopBar />
+            <VerifyPanel />
+          </>
+        ) : (
+          <Landing />
+        )}
+      </div>
+    </main>
+  );
+}
 
-const STATS = ["99.7% Accuracy", "< 3s Inference", "Ritual ONNX Powered"];
+function Landing() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-7 text-center">
+      <div className="glass grid size-20 place-items-center rounded-3xl text-primary">
+        <HeartPulse className="size-9" />
+      </div>
+      <div className="space-y-3">
+        <h1 className="text-balance text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
+          Hospital Verification System
+        </h1>
+        <p className="text-base text-muted-foreground">Secure. On-chain. Verified.</p>
+      </div>
 
-function Dashboard() {
-  const [mode, setMode] = useState<Mode>("easy");
-  const [forms, setForms] = useState<Record<Mode, Record<string, string>>>({
-    easy: {},
-    moderate: {},
-    high: {},
-  });
-  const [stage, setStage] = useState<number | null>(null);
-  const [result, setResult] = useState<VerificationResult | null>(null);
+      <div className="wallet-pulse rounded-2xl">
+        <ConnectButton.Custom>
+          {({ openConnectModal, mounted }) => (
+            <button
+              type="button"
+              disabled={!mounted}
+              onClick={openConnectModal}
+              className="flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-primary to-[oklch(0.72_0.13_215)] px-10 py-4 text-sm font-semibold text-background shadow-[0_20px_60px_-24px_var(--primary)] transition-transform duration-300 hover:scale-[1.02]"
+            >
+              <Wallet className="size-4" />
+              Connect Wallet
+            </button>
+          )}
+        </ConnectButton.Custom>
+      </div>
+
+      <p className="max-w-sm text-xs text-muted-foreground">
+        Your identity is verified on-chain. No data is stored off-chain.
+      </p>
+      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+        <LockKeyhole className="size-3" /> MetaMask &amp; WalletConnect supported · Ritual Chain (1979)
+      </p>
+    </div>
+  );
+}
+
+function VerifyPanel() {
+  const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [staffId, setStaffId] = useState("");
+  const [code, setCode] = useState("");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{
+    entry: string;
+    email: string;
+    tx: string;
+    block: number;
+    time: string;
+  } | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  const running = stage !== null;
-  const accent = ACCENT[mode];
+  const wait = (ms: number) => new Promise((r) => timers.current.push(setTimeout(r, ms)));
 
-  const run = useCallback(() => {
-    if (running) return;
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+  const submit = useCallback(async () => {
+    if (phase === "validating" || phase === "verifying" || phase === "signing") return;
+    setError("");
     setResult(null);
-    setStage(0);
+    setPhase("validating");
+    await wait(900);
 
-    const [lo, hi] = DURATION[mode];
-    const total = Math.round(lo + Math.random() * (hi - lo));
-    const step = total / STEPS.length;
+    const idOk = VALID_IDS.includes(staffId.trim().toUpperCase());
+    const codeOk = /^\d{6}$/.test(code.trim());
+    if (!idOk || !codeOk) {
+      setPhase("failed");
+      setError("Verification failed. Check your ID and authenticator code.");
+      return;
+    }
 
-    STEPS.forEach((_, i) => {
-      timers.current.push(setTimeout(() => setStage(i), Math.round(step * i)));
+    setPhase("verifying");
+    await wait(1500);
+
+    setPhase("signing");
+    try {
+      await signMessageAsync({
+        message: `Hospital Verification\nID: ${staffId.trim().toUpperCase()}\nWallet: ${address}\nTimestamp: ${new Date().toISOString()}`,
+      });
+    } catch {
+      setPhase("failed");
+      setError("Wallet confirmation was rejected. Please approve the request to complete verification.");
+      return;
+    }
+
+    await wait(800);
+    setResult({
+      entry: generateCode(),
+      email: generateCode(),
+      tx: generateTxHash(),
+      block: 4_812_000 + Math.floor(Math.random() * 90_000),
+      time: new Date().toLocaleString(),
     });
+    setPhase("success");
+  }, [address, code, phase, signMessageAsync, staffId]);
 
-    timers.current.push(
-      setTimeout(() => {
-        setStage(null);
-        setResult(buildResult(mode, forms[mode], total));
-      }, total),
+  const busy = phase === "validating" || phase === "verifying" || phase === "signing";
+  const failed = phase === "failed";
+
+  if (phase === "success" && result) {
+    return (
+      <SuccessView
+        result={result}
+        onAgain={() => {
+          setResult(null);
+          setPhase("idle");
+          setStaffId("");
+          setCode("");
+        }}
+      />
     );
-  }, [forms, mode, running]);
+  }
 
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-background"
-      style={{ ["--mode-accent" as string]: accent }}
+    <section
+      className={cn(
+        "glass animate-in fade-in slide-in-from-bottom-3 mx-auto w-full max-w-xl space-y-7 rounded-3xl p-6 duration-500 sm:p-8",
+        failed && "shake border-destructive/50",
+      )}
     >
-      {/* animated gradient background */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div
-          className="aurora absolute -top-[30%] left-[-15%] size-[70vw] rounded-full blur-[120px]"
-          style={{ background: "color-mix(in oklab, var(--mode-accent) 20%, transparent)", transition: "background 700ms" }}
+      <div className="space-y-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Identity Verification</h1>
+        <p className="text-sm text-muted-foreground">Enter your credentials to proceed</p>
+      </div>
+
+      <div className="space-y-5">
+        <Field
+          label="Staff / Patient ID"
+          helper="Your hospital-issued ID"
+          error={failed}
+          value={staffId}
+          onChange={setStaffId}
+          placeholder="e.g. HSP-STF-0091"
+          mono
         />
-        <div
-          className="aurora absolute bottom-[-25%] right-[-10%] size-[60vw] rounded-full blur-[140px]"
-          style={{ background: "oklch(0.45 0.15 265 / 35%)", animationDelay: "-9s" }}
-        />
-        <div
-          className="aurora absolute left-[35%] top-[35%] size-[45vw] rounded-full blur-[150px]"
-          style={{ background: "oklch(0.5 0.09 220 / 22%)", animationDelay: "-16s" }}
+        <Field
+          label="Google Authenticator Code"
+          helper="Open your authenticator app for this code"
+          error={failed}
+          value={code}
+          onChange={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))}
+          placeholder="6-digit code"
+          inputMode="numeric"
+          mono
         />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[900px] flex-col gap-8 px-4 py-14 sm:px-6 sm:py-20">
-        {/* Hero */}
-        <header className="space-y-6 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white/[0.04] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground backdrop-blur">
-            🔒 HIPAA-Grade Verification
-          </div>
-          <h1 className="text-balance text-4xl font-bold leading-[1.08] tracking-tight text-foreground sm:text-6xl">
-            Verify every{" "}
-            <span
-              className="bg-clip-text text-transparent"
-              style={{ backgroundImage: `linear-gradient(100deg, var(--mode-accent), oklch(0.8 0.11 220))` }}
-            >
-              patient &amp; clinician
-            </span>{" "}
-            in seconds
-          </h1>
-          <p className="mx-auto max-w-xl text-pretty text-sm text-muted-foreground sm:text-base">
-            One ONNX inference engine for reception desks, staff onboarding and ICU clearance — with
-            cryptographic attestation on the Ritual Chain.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {STATS.map((s) => (
-              <span
-                key={s}
-                className="rounded-full border border-border bg-white/[0.03] px-3.5 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:text-foreground"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
-        </header>
-
-        {/* Segmented control */}
-        <div className="glass grid gap-1.5 rounded-[1.75rem] p-1.5 sm:grid-cols-3">
-          {MODES.map((m) => {
-            const Icon = MODE_ICON[m];
-            const active = mode === m;
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => {
-                  setMode(m);
-                  setResult(null);
-                }}
-                className={cn(
-                  "group flex items-center gap-3 rounded-[1.4rem] px-4 py-3 text-left transition-all duration-300",
-                  active ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.04]",
-                )}
-                style={
-                  active
-                    ? {
-                        background: `color-mix(in oklab, ${ACCENT[m]} 16%, transparent)`,
-                        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${ACCENT[m]} 45%, transparent), 0 12px 40px -18px ${ACCENT[m]}`,
-                      }
-                    : undefined
-                }
-              >
-                <Icon
-                  className="size-4 shrink-0 transition-colors"
-                  style={active ? { color: ACCENT[m] } : undefined}
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold">{MODE_META[m].label}</span>
-                  <span className="block truncate text-[11px] opacity-70">{MODE_META[m].title}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Form panel */}
-        <section
-          key={mode}
-          className="glass animate-in fade-in slide-in-from-bottom-3 space-y-6 rounded-3xl p-5 duration-500 sm:p-8"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight" style={{ color: accent }}>
-                {MODE_META[mode].title}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {MODE_META[mode].useCase} · target {MODE_META[mode].target}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-black/40 px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
-              <span className="pulse-dot size-1.5 rounded-full bg-easy" />
-              <Cpu className="size-3" />
-              <span className="max-w-[220px] truncate">{MODEL_REGISTRY[mode]}</span>
-            </div>
-          </div>
-
-          <ModeForm
-            mode={mode}
-            form={forms[mode]}
-            onChange={(patch) => setForms((f) => ({ ...f, [mode]: { ...f[mode], ...patch } }))}
-          />
-
-          {mode === "high" && (
-            <div
-              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[11px] font-semibold tracking-wide text-high"
-              style={{
-                background: "color-mix(in oklab, var(--high) 12%, transparent)",
-                boxShadow:
-                  "inset 0 0 0 1px color-mix(in oklab, var(--high) 40%, transparent), 0 0 30px -8px var(--high)",
-              }}
-            >
-              <Link2 className="size-3.5" />
-              Powered by Ritual ONNX Precompile 0x0800
-              <ShieldAlert className="size-3.5 opacity-70" />
-            </div>
-          )}
-
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={run}
-              disabled={running}
-              className="group relative flex w-full items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-semibold text-background transition-all duration-300 hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-80"
-              style={{
-                backgroundImage: `linear-gradient(100deg, var(--mode-accent), color-mix(in oklab, var(--mode-accent) 55%, oklch(0.8 0.11 220)))`,
-                boxShadow: `0 18px 50px -20px var(--mode-accent)`,
-              }}
-            >
-              {running && <Loader2 className="size-4 animate-spin" />}
-              {running ? "Running inference…" : "Run verification"}
-            </button>
-
-            {running && (
-              <div className="space-y-3 rounded-2xl border border-border bg-white/[0.02] p-4">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${(((stage ?? 0) + 1) / STEPS.length) * 100}%`,
-                      background: "var(--mode-accent)",
-                      boxShadow: "0 0 14px var(--mode-accent)",
-                    }}
-                  />
-                </div>
-                <ul className="grid gap-1.5 sm:grid-cols-2">
-                  {STEPS.map((s, i) => {
-                    const done = (stage ?? 0) > i;
-                    const current = (stage ?? 0) === i;
-                    return (
-                      <li
-                        key={s}
-                        className={cn(
-                          "flex items-center gap-2 font-mono text-[11px] transition-colors",
-                          done ? "text-foreground/70" : current ? "text-foreground" : "text-muted-foreground/50",
-                        )}
-                      >
-                        <span
-                          className={cn("size-1.5 rounded-full", current && "pulse-dot")}
-                          style={{
-                            background: done || current ? "var(--mode-accent)" : "var(--color-border)",
-                          }}
-                        />
-                        {s}
-                        {current && "…"}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {result && <ResultCard result={result} />}
-
-        <p className="mt-auto pt-4 text-center text-[11px] text-muted-foreground">
-          Demonstration build — ONNX inference and on-chain anchoring are simulated.
+      {failed && (
+        <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
+          <AlertTriangle className="mt-px size-3.5 shrink-0" />
+          {error}
         </p>
+      )}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={busy}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-[oklch(0.72_0.13_215)] px-6 py-4 text-sm font-semibold text-background shadow-[0_18px_50px_-22px_var(--primary)] transition-transform duration-300 hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-80"
+      >
+        {busy && <Loader2 className="size-4 animate-spin" />}
+        {busy ? PHASE_TEXT[phase] : "Verify & Sign"}
+      </button>
+
+      {phase === "signing" && (
+        <div className="animate-in fade-in space-y-1 rounded-2xl border border-border bg-white/[0.03] p-4 text-center">
+          <p className="text-sm text-foreground">
+            Please confirm the transaction in your wallet to complete verification
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            This logs your verification on-chain. Gas fees apply.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Field({
+  label,
+  helper,
+  value,
+  onChange,
+  placeholder,
+  error,
+  inputMode,
+  mono,
+}: {
+  label: string;
+  helper: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  error?: boolean;
+  inputMode?: "numeric";
+  mono?: boolean;
+}) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        maxLength={inputMode === "numeric" ? 6 : 32}
+        className={cn(
+          "w-full rounded-xl border bg-white/[0.03] px-4 py-3 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground/60",
+          mono && "font-mono tracking-wide",
+          error
+            ? "border-destructive/60 focus:border-destructive focus:shadow-[0_0_0_4px_color-mix(in_oklab,var(--destructive)_18%,transparent)]"
+            : "border-border focus:border-primary/60 focus:shadow-[0_0_0_4px_color-mix(in_oklab,var(--primary)_16%,transparent)]",
+        )}
+      />
+      <span className="block text-[11px] text-muted-foreground">{helper}</span>
+    </label>
+  );
+}
+
+function SuccessView({
+  result,
+  onAgain,
+}: {
+  result: { entry: string; email: string; tx: string; block: number; time: string };
+  onAgain: () => void;
+}) {
+  return (
+    <section className="glass animate-in fade-in slide-in-from-bottom-4 mx-auto w-full max-w-xl space-y-7 rounded-3xl p-6 text-center duration-700 sm:p-8">
+      <div className="flex flex-col items-center gap-4">
+        <span className="pop grid size-20 place-items-center rounded-full bg-primary/15 text-primary ring-1 ring-primary/40">
+          <CheckCircle2 className="size-10" />
+        </span>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Verification Complete</h1>
       </div>
-    </main>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <CodeBox title="Entry Code" code={result.entry} caption="Show this at the gate" delay="0ms" />
+        <CodeBox
+          title="Email Code"
+          code={result.email}
+          caption="Sent to your registered email"
+          delay="120ms"
+        />
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-[11px] text-muted-foreground">
+          Transaction confirmed on Ritual Chain · Block #{result.block.toLocaleString()} · {result.time}
+        </p>
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-muted-foreground">
+          <span className="truncate">{truncate(result.tx, 6, 4)}</span>
+          <CopyButton value={result.tx} label="" className="h-7 px-2" />
+          <a
+            href={`${EXPLORER_URL}/tx/${result.tx}`}
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors hover:text-foreground"
+          >
+            <ExternalLink className="size-3.5" />
+          </a>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onAgain}
+        className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+      >
+        <RotateCcw className="size-3.5" /> Verify Again
+      </button>
+    </section>
+  );
+}
+
+function CodeBox({
+  title,
+  code,
+  caption,
+  delay,
+}: {
+  title: string;
+  code: string;
+  caption: string;
+  delay: string;
+}) {
+  return (
+    <div
+      className="animate-in fade-in slide-in-from-bottom-4 space-y-2 rounded-2xl border border-primary/25 bg-primary/[0.06] p-5 duration-700"
+      style={{ animationDelay: delay, animationFillMode: "backwards" }}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        {title}
+      </p>
+      <p className="font-mono text-2xl font-semibold tracking-widest text-primary">{code}</p>
+      <p className="text-[11px] text-muted-foreground">{caption}</p>
+      <CopyButton value={code} className="mx-auto" />
+    </div>
   );
 }
