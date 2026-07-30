@@ -140,11 +140,15 @@ function VerifyPanel() {
     setPhase("validating");
     await wait(900);
 
-    const idOk = VALID_IDS.includes(staffId.trim().toUpperCase());
+    const idOk = staffId.trim().length >= 3;
     const codeOk = /^\d{6}$/.test(code.trim());
     if (!idOk || !codeOk) {
       setPhase("failed");
-      setError("Verification failed. Check your ID and authenticator code.");
+      setError(
+        !idOk
+          ? "Please enter a valid ID (at least 3 characters)"
+          : "Please enter a valid 6-digit code",
+      );
       return;
     }
 
