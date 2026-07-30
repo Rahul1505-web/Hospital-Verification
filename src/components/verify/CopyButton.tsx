@@ -25,7 +25,16 @@ export function CopyButton({
   };
 
   return (
-    <Button type="button" variant="outline" size="sm" onClick={copy} className={cn("gap-2", className)}>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={copy}
+      className={cn(
+        "gap-2 rounded-full border-border bg-white/[0.04] transition-all duration-200 hover:bg-white/[0.08]",
+        className,
+      )}
+    >
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       {copied ? "Copied" : label}
     </Button>
