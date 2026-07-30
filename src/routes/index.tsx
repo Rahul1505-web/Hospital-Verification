@@ -17,7 +17,7 @@ import { TopBar } from "@/components/TopBar";
 import { CopyButton } from "@/components/CopyButton";
 import { useHydrated } from "@/components/web3/Web3Provider";
 import { EXPLORER_URL, truncate } from "@/lib/chain";
-import { VALID_IDS, generateCode, generateTxHash } from "@/lib/registry";
+import { generateCode, generateTxHash } from "@/lib/registry";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
