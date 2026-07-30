@@ -158,7 +158,7 @@ function VerifyPanel() {
     setPhase("signing");
     try {
       await signMessageAsync({
-        message: `Hospital Verification\nID: ${staffId.trim().toUpperCase()}\nWallet: ${address}\nTimestamp: ${new Date().toISOString()}`,
+        message: `Hospital Verification\nID: ${staffId.trim()}\nWallet: ${address}\nTimestamp: ${new Date().toISOString()}`,
       });
     } catch {
       setPhase("failed");
@@ -218,7 +218,7 @@ function VerifyPanel() {
         />
         <Field
           label="Google Authenticator Code"
-          helper="Open your authenticator app for this code"
+          helper="Enter any 6-digit code for demo purposes"
           error={failed}
           value={code}
           onChange={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))}
