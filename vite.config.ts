@@ -15,4 +15,18 @@ export default defineConfig({
   // Deployment target: Vercel. Inside Lovable's own build the preset is forced
   // to Cloudflare, so this only affects external CI builds (e.g. Vercel).
   nitro: { preset: "vercel" },
+  vite: {
+    build: {
+      rollupOptions: {
+        external: ["@coinbase/cdp-sdk", "@x402/evm"],
+        onwarn(warning, warn) {
+          if (warning.code === "MISSING_EXPORT") return;
+          warn(warning);
+        },
+      },
+    },
+    optimizeDeps: {
+      exclude: ["@coinbase/cdp-sdk", "@x402/evm"],
+    },
+  },
 });
